@@ -73,7 +73,7 @@
                                 <span id="textAdd" class="text-sm font-bold text-red-600 cursor-pointer select-none" onclick="document.getElementById('modeToggle').click()">增</span>
                             </div>
 
-                            <!-- 隱藏已(免)交者 (改回打勾樣式) -->
+                            <!-- 隱藏已(免)交者 -->
                             <label class="flex items-center cursor-pointer bg-white border border-gray-300 px-2 py-1.5 rounded shadow-sm hover:bg-gray-50 transition">
                                 <input type="checkbox" id="hideHandedInToggle" class="w-4 h-4 text-red-600 rounded focus:ring-red-500 cursor-pointer">
                                 <span class="ml-2 text-sm text-gray-700 font-bold select-none">隱藏已(免)交</span>
@@ -112,6 +112,15 @@
         </main>
     </div>
 
+    <!-- 自訂 Modal (修改 z-index 為 z-[60] 確保在最上層) -->
+    <div id="customModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex flex-col justify-center items-center z-[60] hidden transition-opacity">
+        <div class="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 mx-4 transform transition-transform scale-100">
+            <h3 id="modalTitle" class="text-lg font-bold text-gray-900 mb-2">提示</h3>
+            <p id="modalMessage" class="text-gray-600 mb-6 whitespace-pre-line leading-relaxed text-sm"></p>
+            <div class="flex justify-end gap-3" id="modalButtons"></div>
+        </div>
+    </div>
+
     <div id="loadingOverlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex flex-col justify-center items-center z-50">
         <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4"></div>
         <p class="text-white font-medium" id="loadingText">載入資料中...</p>
@@ -132,7 +141,6 @@
         const submitBtn = document.getElementById('submitBtn');
         const hideHandedInToggle = document.getElementById('hideHandedInToggle');
         
-        // 取得新的開關與文字元素
         const modeToggle = document.getElementById('modeToggle');
         const textSub = document.getElementById('textSub');
         const textAdd = document.getElementById('textAdd');
@@ -148,6 +156,46 @@
         }
         function hideLoading() {
             loadingOverlay.classList.add('hidden');
+        }
+
+        // 自訂提示框邏輯
+        function showModal(title, message, isConfirm = false) {
+            hideLoading(); // 🌟 關鍵修復：只要跳出提示，就強制關閉載入遮罩，避免遮擋按鈕
+            return new Promise((resolve) => {
+                const modal = document.getElementById('customModal');
+                document.getElementById('modalTitle').textContent = title;
+                document.getElementById('modalMessage').textContent = message;
+                const buttonsContainer = document.getElementById('modalButtons');
+                buttonsContainer.innerHTML = '';
+
+                const closeModal = (result) => {
+                    modal.classList.add('hidden');
+                    resolve(result);
+                };
+
+                if (isConfirm) {
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.className = 'px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-bold transition';
+                    cancelBtn.textContent = '取消';
+                    cancelBtn.onclick = () => closeModal(false);
+                    
+                    const confirmBtn = document.createElement('button');
+                    confirmBtn.className = 'px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg font-bold transition shadow';
+                    confirmBtn.textContent = '確定送出';
+                    confirmBtn.onclick = () => closeModal(true);
+                    
+                    buttonsContainer.appendChild(cancelBtn);
+                    buttonsContainer.appendChild(confirmBtn);
+                } else {
+                    const okBtn = document.createElement('button');
+                    okBtn.className = 'px-4 py-2 text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg font-bold transition shadow';
+                    okBtn.textContent = '確定';
+                    okBtn.onclick = () => closeModal(true);
+                    buttonsContainer.appendChild(okBtn);
+                }
+                
+                modal.classList.remove('hidden');
+            });
         }
 
         function generateStudentButtons() {
@@ -189,7 +237,7 @@
                      newTaskForm.classList.add('hidden');
                 }
             } catch (error) {
-                alert('⚠️ 連線 API 失敗！\n錯誤詳情：' + error.message);
+                await showModal('系統提示', '⚠️ 連線 API 失敗！\n錯誤詳情：' + error.message);
             } finally {
                 hideLoading();
             }
@@ -217,7 +265,6 @@
                 studentSection.classList.add('hidden');
                 currentSelectedTask = null;
                 
-                // 新建任務預設：加(+1)
                 modeToggle.checked = true;
                 updateModeUI();
             } else if (val) {
@@ -226,15 +273,15 @@
                 
                 currentSelectedTask = tasksData.find(t => t.rowIndex == val);
                 
-                // 解析已存的紀錄，並判斷是否有人已記缺交
                 let hasMissingRecords = false;
                 for (let i = 1; i <= 29; i++) {
                     const cellVal = currentSelectedTask.status[i];
-                    if (cellVal === "免交" || cellVal === "免") {
-                        missingCounts.set(i, 0);
+                    // 乾淨且嚴謹的比對: 只有 -1
+                    if (cellVal === "-1") {
+                        missingCounts.set(i, -1);
                     } else if (cellVal !== "") {
                         const count = parseInt(cellVal, 10);
-                        if (!isNaN(count)) {
+                        if (!isNaN(count) && count !== -1) {
                             missingCounts.set(i, count);
                             if (count > 0) hasMissingRecords = true;
                         } else {
@@ -245,7 +292,7 @@
                     }
                 }
 
-                // 智慧切換：有缺交紀錄代表是舊任務，預設切為「減(-1)」；全空白或全0則為「加(+1)」
+                // 智慧切換
                 if (hasMissingRecords) {
                     modeToggle.checked = false;
                 } else {
@@ -260,7 +307,6 @@
         taskSelect.addEventListener('change', (e) => selectTask(e.target.value));
         hideHandedInToggle.addEventListener('change', updateStudentButtonsStatus);
         
-        // 動態變更增減開關的標籤顏色
         function updateModeUI() {
             if (modeToggle.checked) {
                 textAdd.className = 'text-sm font-bold text-red-600 transition-colors duration-200 cursor-pointer select-none';
@@ -272,21 +318,19 @@
         }
         modeToggle.addEventListener('change', updateModeUI);
 
-        // 電阻色碼表定義
         const colorMap = {
             0: { bg: 'bg-gray-200', text: 'text-gray-700' },
-            1: { bg: 'bg-[#8B4513]', text: 'text-white' }, // 棕
-            2: { bg: 'bg-red-500', text: 'text-white' },   // 紅
-            3: { bg: 'bg-orange-500', text: 'text-white' }, // 橙
-            4: { bg: 'bg-yellow-400', text: 'text-black' }, // 黃
-            5: { bg: 'bg-green-500', text: 'text-white' },  // 綠
-            6: { bg: 'bg-blue-500', text: 'text-white' },   // 藍
-            7: { bg: 'bg-purple-500', text: 'text-white' }, // 紫
-            8: { bg: 'bg-gray-500', text: 'text-white' },   // 灰
-            9: { bg: 'bg-white', text: 'text-black', extra: 'border border-gray-400' } // 白
+            1: { bg: 'bg-[#8B4513]', text: 'text-white' }, 
+            2: { bg: 'bg-red-500', text: 'text-white' },   
+            3: { bg: 'bg-orange-500', text: 'text-white' }, 
+            4: { bg: 'bg-yellow-400', text: 'text-black' }, 
+            5: { bg: 'bg-green-500', text: 'text-white' },  
+            6: { bg: 'bg-blue-500', text: 'text-white' },   
+            7: { bg: 'bg-purple-500', text: 'text-white' }, 
+            8: { bg: 'bg-gray-500', text: 'text-white' },   
+            9: { bg: 'bg-white', text: 'text-black', extra: 'border border-gray-400' } 
         };
 
-        // 渲染按鈕顏色與數值
         function renderButtonState(num, btn) {
             if (btn.disabled) return;
             const count = missingCounts.get(num) || 0;
@@ -317,17 +361,16 @@
                 btn.disabled = false;
                 btn.classList.remove('invisible');
 
-                if (cellValue === "免交" || cellValue === "免") {
+                // 乾淨的 -1 判斷
+                if (cellValue === "-1") {
                     btn.className = 'py-2 h-14 rounded text-sm font-bold flex flex-col items-center justify-center bg-blue-50 text-blue-400 border border-blue-200 cursor-not-allowed';
                     btn.disabled = true;
                     btn.innerHTML = `<span>${i}</span><span class="text-[10px] mt-0.5">免交</span>`;
                     
                     if (isHideHandedIn) btn.classList.add('invisible');
                 } else {
-                    // 套用目前的點擊次數渲染
                     renderButtonState(i, btn);
                     
-                    // 隱藏條件：如果勾選了隱藏且缺交數為0，就將按鈕設為隱形
                     if (isHideHandedIn && count === 0) {
                         btn.classList.add('invisible');
                     }
@@ -335,19 +378,16 @@
             }
         }
 
-        // 點擊次數加減邏輯
         function toggleStudent(num, btn) {
             if (btn.disabled) return;
             let currentCount = missingCounts.get(num) || 0;
-            
-            // 判斷目前的點擊模式 (true: 加, false: 減)
             const isAddMode = modeToggle.checked;
 
             if (isAddMode) {
-                currentCount = (currentCount + 1) % 10; // 0~9 循環
+                currentCount = (currentCount + 1) % 10; 
             } else {
                 currentCount = currentCount - 1;
-                if (currentCount < 0) currentCount = 0; // 最低扣至0
+                if (currentCount < 0) currentCount = 0; 
             }
             
             missingCounts.set(num, currentCount);
@@ -359,7 +399,7 @@
             const exemptStr = document.getElementById('exemptStudents').value.trim();
             
             if (!taskName) {
-                alert('請輸入任務名稱！');
+                await showModal('系統提示', '請輸入任務名稱！');
                 return;
             }
 
@@ -384,13 +424,13 @@
                 
                 const result = await response.json();
                 if (result.success) {
-                    alert('任務建立成功！');
+                    await showModal('系統提示', '任務建立成功！');
                     document.getElementById('newTaskName').value = '';
                     document.getElementById('exemptStudents').value = '';
                     await fetchTasks('latest');
                 }
             } catch (error) {
-                alert('建立失敗，請重試。\n' + error.message);
+                await showModal('系統提示', '建立失敗，請重試。\n' + error.message);
             } finally {
                 hideLoading();
             }
@@ -407,11 +447,12 @@
                 }
             }
 
-            const confirmMsg = "確定要送出紀錄嗎？\n\n注意：畫面上的數字將會覆蓋試算表紀錄，灰色(未點擊)的座號將一律記錄為「0 缺交」。\n送出後該任務將自動封存！";
-            if (!confirm(confirmMsg)) return;
+            const confirmMsg = "確定要送出紀錄嗎？\n\n注意：畫面的數字將覆蓋試算表，灰色(未點擊)的座號將一律記錄為「0 缺交」。\n若全班皆已歸 0 (無未交作業)，任務將自動封存(-1)！";
+            const userConfirmed = await showModal('請確認', confirmMsg, true);
+            if (!userConfirmed) return;
 
             let previousRowIndex = currentSelectedTask.rowIndex;
-            showLoading('更新並封存紀錄中...');
+            showLoading('更新並檢查封存狀態中...');
             try {
                 const response = await fetch(GAS_URL, {
                     method: 'POST',
@@ -431,9 +472,9 @@
                     
                     const stillExists = tasksData.find(t => t.rowIndex == previousRowIndex);
                     if (stillExists) {
-                        alert('紀錄已更新！');
+                        await showModal('系統提示', '紀錄已更新！');
                     } else {
-                        alert('✅ 紀錄送出成功！全班皆已有紀錄，任務已自動封存。');
+                        await showModal('系統提示', '✅ 紀錄送出成功！全班皆已無未交作業，任務已自動封存 (-1)。');
                         if (tasksData.length > 0) {
                             let latestTask = tasksData[tasksData.length - 1];
                             taskSelect.value = latestTask.rowIndex;
@@ -445,7 +486,7 @@
                     }
                 }
             } catch (error) {
-                alert('更新失敗，請重試。\n' + error.message);
+                await showModal('系統提示', '更新失敗，請重試。\n' + error.message);
             } finally {
                 hideLoading();
             }
